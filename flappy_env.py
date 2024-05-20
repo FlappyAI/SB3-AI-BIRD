@@ -74,6 +74,7 @@ class Pipe(pygame.sprite.Sprite):
         self.image = pygame.image.load('assets/sprites/pipe-green.png').convert_alpha()
         self.image = pygame.transform.scale(self.image, (PIPE_WIDHT, PIPE_HEIGHT))
         self.scored = False
+        self.inverted = inverted
 
         self.rect = self.image.get_rect()
         self.rect[0] = xpos
@@ -130,21 +131,47 @@ class FlappyEnv(gym.Env):
         #self.observation_space = spaces.Box(low=0, high=255,
         #                                    shape=(N_CHANNELS, HEIGHT, WIDTH), dtype=np.uint8)
 
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(19,),dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
         self.done = False
         self.clock = pygame.time.Clock()
         self.moves = 0
 
-    def get_observation(self):
-        obs = []
-        obs.append(self.bird.rect[1])
+        self.tap = False
 
-        for pipe in self.pipe_group:
-                obs.append(pipe.rect[0])
-                obs.append(pipe.rect[1])
-        return obs
+
+        pygame.font.init()
+        self.font = pygame.font.SysFont('Arial', 24)
+
+
+    def get_observation(self):
+        pass
 
     def step(self, action):
+        self.bird_center = (self.bird.get_center("x"), self.bird.get_center("y"))
+        self.frame += 1
+
+        first_top_pipe = None
+        first_bottom_pipe = None
+
+        for pipe in self.pipe_group:
+            if not first_top_pipe and pipe.inverted:
+                first_top_pipe = pipe
+            elif not first_bottom_pipe and not pipe.inverted:
+                first_bottom_pipe = pipe
+
+            if first_top_pipe and first_bottom_pipe:
+                break
+
+        self.top_edge = first_top_pipe.rect[0], first_top_pipe.rect[1] + first_top_pipe.rect[3]
+        self.bottom_edge = first_bottom_pipe.rect[0], first_bottom_pipe.rect[1]
+
+        self.bird_to_top = -((self.bird.get_center("y") - self.top_edge[1]) / 500)
+        self.bird_to_bot = -((self.bird.get_center("y") - self.bottom_edge[1]) / 500)
+        self.h_dist = (self.top_edge[0] - self.bird_center[0] - 12) / 400
+
+        # print(f'Bird to top edge: {self.bird.get_center("y") - self.top_edge[0]}')
+        # print(f'Bird to bottom edge: {self.bird.get_center("y") - self.bottom_edge[0]}')
+        # print("")
 
         self.clock.tick(15)
 
@@ -157,12 +184,13 @@ class FlappyEnv(gym.Env):
             pygame.mixer.music.load(wing)
             #pygame.mixer.music.play()
             #print("TAP")
+            self.tap = True
             self.moves += 1
             self.action_history.append(action)
             self.action_history.pop(0)
         elif action == 0:
             #print("DO NOTHING")
-            self.moves += 1
+            self.tap = False
             self.action_history.append(action)
             self.action_history.pop(0)
         #print(self.action_history)
@@ -188,9 +216,9 @@ class FlappyEnv(gym.Env):
         for pipe in self.pipe_group:
             right_edge = pipe.rect[0] + pipe.rect[2]
             if self.bird.rect[0] > right_edge and (pipe.scored == False):
-                self.score += 1
+                self.score += 100
                 pipe.scored = True
-                print(f'Score: {self.score}')
+                #print(f'Score: {self.score}')
 
                 next_pipe_index = self.pipe_group.sprites().index(pipe) + 1
                 if next_pipe_index < len(self.pipe_group.sprites()):
@@ -214,28 +242,40 @@ class FlappyEnv(gym.Env):
             pygame.mixer.music.load(hit)
             #pygame.mixer.music.play()
             time.sleep(1)
-            death_penalty = -10
+            death_penalty = -50
+            if self.bird.get_center("y") < 0:
+                death_penalty = -250
             self.done = True
 
-        move_penalty = self.moves * 0.1
+        move_penalty = self.moves * 0.01
+        surival_reward = self.frame * 0.1
 
-        self.observation = self.get_observation() + self.action_history
+        # [bird to top, bird to bot, horizontal distance, ]
+        self.observation = [self.bird_to_top, self.bird_to_bot, self.h_dist]
         self.observation = np.array(self.observation, dtype=np.float32)
-        total_reward = self.score - move_penalty + death_penalty
+        total_reward = self.score - move_penalty + death_penalty + surival_reward
         info = {}
         truncated = False
 
         print(f"Observation space = {self.observation}")
-        print(f"Reward: {total_reward}")
-        print(" ")
+        #print(f"Reward: {total_reward}")
+        #print(" ")
 
         return self.observation, total_reward, self.done, truncated, info
 
     def reset(self, seed=None):
         self.done = False
         self.obs = [0] * 9
-        self.action_history = [np.nan] * 10
+        self.action_history = [-1] * 10
         self.moves = 0
+        self.frame = 0
+
+        self.bird_to_top = None
+        self.bird_to_bot = None
+        self.h_dist = 0
+
+        self.top_edge = (0, 0)
+        self.bottom_edge = (0, 0)
 
         pygame.mixer.init()
         pygame.init()
@@ -248,6 +288,7 @@ class FlappyEnv(gym.Env):
 
         self.bird_group = pygame.sprite.Group()
         self.bird = Bird()
+        self.bird_center = (self.bird.get_center("x"), self.bird.get_center("y"))
         self.bird_group.add(self.bird)
 
         self.ground_group = pygame.sprite.Group()
@@ -273,16 +314,39 @@ class FlappyEnv(gym.Env):
         pygame.display.update()
 
         self.score = 0
-        self.observation = self.obs + self.action_history
+        self.observation = [self.bird_to_top, self.bird_to_bot, self.h_dist]
         self.observation = np.array(self.observation, dtype=np.float32)
 
         info = {}
-        return self.observation, info # reward, done, info can't be included
+        return self.observation # reward, done, info can't be included
 
+    def render_text(self, text, position, size):
+        self.font = pygame.font.SysFont('Arial', size)
+        text_surface = self.font.render(text, True, (0, 0, 0))
 
+        self.screen.blit(text_surface, position)
 
     def render(self, mode='human'):
-        pass
+        if mode == 'human':
+            self.render_text(f'Score: {self.score}', (200, 540), 24)
+            self.render_text(f'Frame: {self.frame}', (200, 560), 24)
+
+            self.render_text(f'Top: {self.bird_to_top}', (40, self.bird.get_center('y') - 50), 16)
+            self.render_text(f'Bot: {self.bird_to_bot}', (40, self.bird.get_center('y') + 30), 16)
+            self.render_text(f'{self.h_dist}', (10, self.bird.get_center('y')), 16)
+
+
+            pygame.draw.circle(self.screen, (0, 0, 0), (130, 560), 30)
+            pygame.draw.circle(self.screen, (255, 0, 0), (130, 560), 25)
+            if self.tap:
+                pygame.draw.circle(self.screen, (0, 255, 0), (130, 560), 25)
+                self.tap = False
+
+            pygame.draw.line(self.screen, (255, 0, 0), self.bird_center, self.top_edge, 3)
+            pygame.draw.line(self.screen, (255, 0, 0), self.bird_center, self.bottom_edge, 3)
+            pygame.draw.line(self.screen, (0, 0, 255), self.bird_center, (self.bird_center[0] + self.h_dist, self.bird_center[1]), 3)
+
+            pygame.display.update()
 
     def close(self):
         pass

@@ -76,7 +76,7 @@ class Pipe(pygame.sprite.Sprite):
         self. image = pygame.image.load('assets/sprites/pipe-green.png').convert_alpha()
         self.image = pygame.transform.scale(self.image, (PIPE_WIDHT, PIPE_HEIGHT))
         self.scored = False
-
+        self.inverted = inverted
 
         self.rect = self.image.get_rect()
         self.rect[0] = xpos
@@ -89,6 +89,11 @@ class Pipe(pygame.sprite.Sprite):
 
         self.mask = pygame.mask.from_surface(self.image)
 
+    def get_edge(self):
+        if self.inverted:
+            return self.rect.top
+        else:
+            return self.rect.bottom
 
     def update(self):
         self.rect[0] -= GAME_SPEED
@@ -235,9 +240,33 @@ while True:
     pipe_group.draw(screen)
     ground_group.draw(screen)
 
-    for count, pipe in enumerate(pipe_group):
-        print(f'pipe {count+1} x: {pipe.rect[0]}, pipe {count+1} y: {pipe.rect[1]}, bird: {bird.rect[1]}')
-    print("")
+    bird_center = (bird.get_center("x"), bird.get_center("y"))
+    first_top_pipe = None
+    first_bottom_pipe = None
+
+    for pipe in pipe_group:
+        if not first_top_pipe and pipe.inverted:
+            first_top_pipe = pipe
+        elif not first_bottom_pipe and not pipe.inverted:
+            first_bottom_pipe = pipe
+
+        if first_top_pipe and first_bottom_pipe:
+            break
+
+    if first_top_pipe:
+        top_pipe_edge = (first_top_pipe.rect[0], first_top_pipe.rect[1] + first_top_pipe.rect[3])
+        pygame.draw.line(screen, (255, 0, 0), bird_center, top_pipe_edge, 3)
+    if first_bottom_pipe:
+        bottom_pipe_edge = (first_bottom_pipe.rect[0], first_bottom_pipe.rect[1])
+        pygame.draw.line(screen, (255, 0, 0), bird_center, bottom_pipe_edge, 3)
+
+    h_dist = top_pipe_edge[0] - bird.get_center("x") - 12
+    pygame.draw.line(screen, (0, 0, 255), bird_center, (bird_center[0] + h_dist, bird_center[1]), 3)
+    bird_to_top = -((bird.get_center("y") - top_pipe_edge[1]) / 500)
+    bird_to_bot = -((bird.get_center("y") - bottom_pipe_edge[1]) / 500)
+    print(f"bird to top: {bird_to_top}\nbird to bot: {bird_to_bot}\n")
+    print(f"HORIZONTAL TO BIRD: {h_dist}\n")
+
     pygame.display.update()
 
     if (pygame.sprite.groupcollide(bird_group, ground_group, False, False, pygame.sprite.collide_mask) or
