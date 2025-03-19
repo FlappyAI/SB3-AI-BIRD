@@ -16,3 +16,4 @@ __pycache__/
 *.tar.lzma
 *.tar.lz
 game_stats.json
+.DS_Store
