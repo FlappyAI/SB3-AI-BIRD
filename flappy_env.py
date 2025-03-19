@@ -276,16 +276,18 @@ class FlappyEnv(gym.Env):
             self.done = True
             self.death_count += 1  # 增加死亡计数
             self.stats.update_death_count(self.death_count)  # 保存死亡次数
+            
+            # 更新最高分
+            if self.current_score > self.high_score:
+                self.high_score = self.current_score
+                self.stats.update_high_score(self.high_score)
+                print(f"新的最高分: {self.high_score}")  # 添加提示信息
+            
             self.current_score = 0  # 重置当前分数
-
-        # 更新最高分
-        if self.current_score > self.high_score:
-            self.high_score = self.current_score
-            self.stats.update_high_score(self.high_score)
 
         # 计算奖励（简化奖励计算）
         move_penalty = self.moves * 0.001
-        surival_reward = self.frame * 0.001
+        surival_reward = self.frame * 0.001  # 存活奖励，鼓励小鸟存活更长时间
 
         # 构建观察值
         self.observation = np.array([self.bird_to_top, self.bird_to_bot, self.h_dist], dtype=np.float32)

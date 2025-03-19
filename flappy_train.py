@@ -40,36 +40,59 @@ class SaveCallback(BaseCallback):
 
 def load_latest_model(models_dir):
     """加载最新的模型"""
+    print(f"\n开始检查模型目录: {models_dir}")
+    
     if not os.path.exists(models_dir):
+        print(f"错误: 目录 {models_dir} 不存在")
         return None, 0
     
-    # 获取所有模型目录
-    model_dirs = [d for d in os.listdir(models_dir) if os.path.isdir(os.path.join(models_dir, d))]
+    # 获取所有模型目录并按时间戳排序（从大到小）
+    model_dirs = sorted([d for d in os.listdir(models_dir) if os.path.isdir(os.path.join(models_dir, d))], 
+                       key=lambda x: int(x), 
+                       reverse=True)
+    print(f"找到的模型目录（按时间戳从大到小）: {model_dirs}")
+    
     if not model_dirs:
+        print("错误: 没有找到任何模型目录")
         return None, 0
     
-    # 获取所有模型文件
-    all_model_files = []
+    # 按时间戳顺序检查每个目录
     for dir_name in model_dirs:
         dir_path = os.path.join(models_dir, dir_name)
+        print(f"\n检查目录: {dir_name}")
+        
+        # 获取该目录中的所有模型文件
         model_files = [f for f in os.listdir(dir_path) if f.startswith('model_') and f.endswith('.zip')]
-        for file in model_files:
-            all_model_files.append((os.path.join(dir_path, file), file))
+        if not model_files:
+            print(f"目录 {dir_name} 中没有找到模型文件，继续检查下一个目录")
+            continue
+            
+        print(f"在目录 {dir_name} 中找到的模型文件: {model_files}")
+        
+        # 选择步数最大的模型文件
+        latest_model = max(model_files, key=lambda x: int(x.split('_')[1].split('.')[0]))
+        latest_model_path = os.path.join(dir_path, latest_model)
+        steps = int(latest_model.split('_')[1].split('.')[0])
+        
+        print(f"\n选择的最新模型文件:")
+        print(f"目录: {dir_name}")
+        print(f"文件名: {latest_model}")
+        print(f"步数: {steps}")
+        print(f"完整路径: {latest_model_path}")
+        
+        return latest_model_path, steps
     
-    if not all_model_files:
-        return None, 0
-    
-    # 获取最新的模型文件
-    latest_model, latest_file = max(all_model_files, key=lambda x: int(x[1].split('_')[1].split('.')[0]))
-    steps = int(latest_file.split('_')[1].split('.')[0])
-    
-    return latest_model, steps
+    print("\n错误: 在所有目录中都没有找到模型文件")
+    return None, 0
 
 def main():
     # 创建模型和日志目录
     model_code = int(time.time())
     models_dir = f"models/{model_code}/"
     logdir = f"logs/{model_code}/"
+
+    print(f"\n创建新的模型目录: {models_dir}")
+    print(f"创建新的日志目录: {logdir}")
 
     # 确保目录存在
     if not os.path.exists(models_dir):
@@ -82,13 +105,15 @@ def main():
     env.reset()
 
     # 尝试加载最新的模型
+    print("\n尝试加载最新的模型...")
     latest_model, start_steps = load_latest_model("models")
     if latest_model:
-        print(f"加载已有模型: {latest_model}")
+        print(f"\n成功找到模型: {latest_model}")
+        print(f"正在加载模型...")
         model = PPO.load(latest_model, env=env, tensorboard_log=logdir)
-        print(f"已加载 {start_steps} 步的训练结果")
+        print(f"模型加载成功！已加载 {start_steps} 步的训练结果")
     else:
-        print("创建新模型")
+        print("\n没有找到现有模型，创建新模型...")
         model = PPO(
             'MlpPolicy',
             env,
@@ -110,6 +135,7 @@ def main():
             verbose=2
         )
         start_steps = 0
+        print("新模型创建成功！")
 
     # 创建回调
     render_callback = RenderCallback(env)
